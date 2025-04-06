@@ -18,8 +18,21 @@ Args::Args() {
     this->width = 0;
     this->height = 0;
     this->step = 0;
-    this->tasks_per_thread = 0;
     this->file = std::string("");
+}
+
+bool Args::get_int(int argc, char* argv[], char const* value, int* out) {
+    for(int i = 1; i < argc; i++) {
+        if(std::strcmp(argv[i], value) == 0) {
+            if(i + 1 >= argc) {
+                return false;
+            }
+
+            *out = atoi(argv[i + 1]);
+            return true;
+        }
+    }
+    return false;
 }
 
 bool Args::parse(int argc, char* argv[], Args& args) {
@@ -55,6 +68,7 @@ bool Args::parse(int argc, char* argv[], Args& args) {
             }
             
             if(!check_float(argv[i+1], args.step)) {
+                printf("Step is not a float\n");
                 return false;
             }
             i += 1;
@@ -63,22 +77,13 @@ bool Args::parse(int argc, char* argv[], Args& args) {
             args.file = std::string(argv[i + 1]);
 
             i += 1;
-        } else if (std::strcmp(argv[i], "--tasks-per-thread") == 0) {
-            args.tasks_per_thread = atoi(argv[i+1]);
-
-            i += 1;
-        } else {
-            return false;
         }
 
         i += 1;
     }
 
     if(args.step <= 0 || args.width <= 0 || args.height <= 0) {
-        return false;
-    }
-
-    if(args.tasks_per_thread < 1) {
+        printf("Step, width and height must be positive\n");
         return false;
     }
 

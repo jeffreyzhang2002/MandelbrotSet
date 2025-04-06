@@ -6,6 +6,7 @@
 #include "args.h"
 #include <cstdint>
 #include <mpi.h>
+#include "walltime.h"
 
 #define DEBUG
 #ifdef DEBUG
@@ -16,8 +17,13 @@
     #define MPI_PRINT(rank, ...)
 #endif
 
+#define CALCULATE_WALLTIME
+#define WALLTIME_ITERATION 1000
+
 #define MAX_ITERAION 255
 #define INT_TYPE uint8_t // Note we use a smaller int type to save on memory
+
+// #define EMIT_OUTPUT
 
 __global__
 void mandelbrot(INT_TYPE *p, int length, int offset, int tasks_per_thread, int img_width, int img_height, float start_x, float start_y, float step) {
@@ -73,13 +79,10 @@ int main(int argc, char* argv[]) {
   
     MPI_Init(&argc, &argv);
 
-    int world_size, rank;
+    int world_size, rank, tasks_per_thread;
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-
-
-  
     Args args;
     if(!Args::parse(argc, argv, args)) {
         PRINT("Failed to parse args!\nExpected: %s --start <float> <float> --dim <int> <int> --step <float> --file <string> --tasks-per-thread <int>", argv[0]);
@@ -87,7 +90,14 @@ int main(int argc, char* argv[]) {
         return 1; 
     }
 
-      // Total number of pixel that need to be computed 
+    Args::get_int(argc, argv, "--tasks-per-thread", &tasks_per_thread); 
+    if(tasks_per_thread <= 0) {
+        PRINT("Task Per Thread must be astleast 1 got %d", tasks_per_thread);
+        MPI_Finalize();
+        return 0;
+    }
+
+    // Total number of pixel that need to be computed 
     int problem_size = args.width * args.height; 
 
 
@@ -100,7 +110,7 @@ int main(int argc, char* argv[]) {
                 args.step,
                 args.width,
                 args.height,
-                args.tasks_per_thread,
+                tasks_per_thread,
                 problem_size,
                 world_size
         );
@@ -114,7 +124,7 @@ int main(int argc, char* argv[]) {
     int curr_node_length = node_length + (rank == world_size - 1? remainder_length : 0); 
     
     // Number of cuda threads requires for current node
-    int curr_node_required_threads = curr_node_length / args.tasks_per_thread + (curr_node_length % args.tasks_per_thread != 0);
+    int curr_node_required_threads = curr_node_length / tasks_per_thread + (curr_node_length % tasks_per_thread != 0);
 
     // Number of blocks needed for current node
     int curr_node_required_blocks = (curr_node_required_threads / 1024) + (curr_node_required_threads % 1024 != 0);
@@ -145,26 +155,6 @@ int main(int argc, char* argv[]) {
         MPI_Abort(MPI_COMM_WORLD, 3);
     };
 
-    // cudaMemset(device_buffer, 0, node_length * sizeof(INT_TYPE));
-
-    
-    mandelbrot<<<curr_node_required_blocks, 1024>>>(
-        device_buffer, 
-        curr_node_length, 
-        curr_node_offset, 
-        args.tasks_per_thread, 
-        args.width, 
-        args.height, 
-        args.start_x, 
-        args.start_y, 
-        args.step
-    );
-
-    cudaDeviceSynchronize();
-
-    cudaMemcpy(host_buffer, device_buffer, node_length * sizeof(INT_TYPE), cudaMemcpyDeviceToHost);
-
-    
 
     if(!rank) {
         if(!(global_buffer = (INT_TYPE*) malloc(problem_size * sizeof(INT_TYPE)))) {
@@ -185,12 +175,56 @@ int main(int argc, char* argv[]) {
 
         recvoffset[i] = offset;
         offset += node_length;
-
-        MPI_PRINT(rank, "%d offset: %d count: %d\n", i, recvoffset[i], recvcounts[i]);
     }
 
+    // cudaMemset(device_buffer, 0, node_length * sizeof(INT_TYPE));
+
+    
+#ifdef CALCULATE_WALLTIME
+
+    double wall_time = 0;
+
+    for(int iteration = 0; iteration < WALLTIME_ITERATION; ++iteration) {
+
+        double start_time, end_time;
+
+        if(rank == 0) {
+            get_walltime(&start_time);
+        }
+
+#endif
+
+    mandelbrot<<<curr_node_required_blocks, 1024>>>(
+        device_buffer, 
+        curr_node_length, 
+        curr_node_offset, 
+        tasks_per_thread, 
+        args.width, 
+        args.height, 
+        args.start_x, 
+        args.start_y, 
+        args.step
+    );
+
+    cudaDeviceSynchronize();
+
+    cudaMemcpy(host_buffer, device_buffer, node_length * sizeof(INT_TYPE), cudaMemcpyDeviceToHost);
+  
     MPI_Gatherv(host_buffer, curr_node_length, MPI_UINT8_T, global_buffer, recvcounts, recvoffset, MPI_UINT8_T, 0, MPI_COMM_WORLD);
 
+#ifdef CALCULATE_WALLTIME
+        if(!rank) {
+            get_walltime(&end_time);
+        }
+
+        wall_time += end_time - start_time;
+
+    }
+
+    MPI_PRINT(rank, "AVERAGE Walltime %lf\n", wall_time/WALLTIME_ITERATION);
+
+#endif
+#ifdef EMIT_OUTPUT 
     if(!rank) {
 
         PRINT("Writing to %s\n", args.file.c_str());
@@ -207,6 +241,8 @@ int main(int argc, char* argv[]) {
 
         file.close();
     }
+
+#endif
 
     MPI_Finalize();
 }
