@@ -98,11 +98,11 @@ int main(int argc, char* argv[]) {
     }
 
     // Total number of pixel that need to be computed 
-    int problem_size = args.width * args.height; 
+    long problem_size = args.width * args.height; 
 
 
     // Print on rank 0;
-    MPI_PRINT(rank, "Calculating Mandelbrot Set!\nstart_x: %f\nstart_y: %f\nend_x: %f\nend_y: %f\ndelta: %f\nimg_width: %d\nimg_height: %d\ntasks_per_thread: %d\nProblem_size: %d\nNodes: %d\n", 
+    MPI_PRINT(rank, "Calculating Mandelbrot Set!\nstart_x: %f\nstart_y: %f\nend_x: %f\nend_y: %f\ndelta: %f\nimg_width: %d\nimg_height: %d\ntasks_per_thread: %d\nProblem_size: %ld\nNodes: %d\n", 
                 args.start_x, 
                 args.start_y, 
                 args.start_x + args.width * args.step, 
@@ -117,21 +117,21 @@ int main(int argc, char* argv[]) {
    
 
     // Amount of pixels designated for each node 
-    int node_length = problem_size / world_size; 
+    long node_length = problem_size / world_size; 
 
     // Update the amount of work for the last node to take into account excess;
-    int remainder_length = problem_size % world_size;
-    int curr_node_length = node_length + (rank == world_size - 1? remainder_length : 0); 
+    long remainder_length = problem_size % world_size;
+    long curr_node_length = node_length + (rank == world_size - 1? remainder_length : 0); 
     
     // Number of cuda threads requires for current node
-    int curr_node_required_threads = curr_node_length / tasks_per_thread + (curr_node_length % tasks_per_thread != 0);
+    long curr_node_required_threads = curr_node_length / tasks_per_thread + (curr_node_length % tasks_per_thread != 0);
 
     // Number of blocks needed for current node
-    int curr_node_required_blocks = (curr_node_required_threads / 1024) + (curr_node_required_threads % 1024 != 0);
+    long curr_node_required_blocks = (curr_node_required_threads / 1024) + (curr_node_required_threads % 1024 != 0);
 
-    int curr_node_offset = rank * node_length;
+    long curr_node_offset = rank * node_length;
 
-    PRINT("Rank %d/%d: Threads: %d Blocks: %d Tasks: %d Offset: %d\n", 
+    PRINT("Rank %d/%d: Threads: %ld Blocks: %ld Tasks: %ld Offset: %ld\n", 
             rank, 
             world_size, 
             curr_node_required_threads, 
